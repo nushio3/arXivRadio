@@ -1,0 +1,20 @@
+arXivRadio: arXiv scraper and machine reader
+
+This is a ruby script that scrapes e-print site http://arxiv.org/,
+edits its content in a radio news style, and feeds it to a
+text-to-speech program.
+
+By default, it reads out astro-ph/new. You can change this by editing
+the following line of the script:
+
+NEWS_URL = "http://arxiv.org/list/astro-ph/new"
+
+#### Requirements
+
+- ruby
+- hpricot, a ruby gem
+
+and either
+- Festival Text To Speech http://www.cstr.ed.ac.uk/projects/festival/
+- say, Mac's default Speech Synthesis Manager 
+

@@ -1,0 +1,283 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'hpricot'
+require 'open-uri'
+require 'cgi'
+require 'open3'
+
+
+MaxAuthor = 5
+
+NEWS_URL = "http://arxiv.org/list/astro-ph/new"
+#NEWS_URL = "http://arxiv.org/list/cs/new"
+
+
+$speech_cmd = nil
+$speech_cmd_long = nil
+
+[
+ ['festival --tts', 'Festival, open source text to speech engine'], 
+ ['say', 'Alex, new voice for Leopard']].each{|cmdline, long|
+  cmd = cmdline.split(/\s+/)[0]
+  if (`which #{cmd}`.length > 0)
+    $speech_cmd = cmdline
+    $speech_cmd_long = long
+    break
+  end
+}
+
+STDERR.puts "Using text to speech : #{$speech_cmd}"
+
+class News
+  attr_accessor :text, :subject_tag, :headline, :subject, :rank, :arXiv_index
+end
+
+def cleanse(str)
+  return CGI.unescapeHTML(str)
+end
+
+def gsub_word(str,word, word2)
+  return str.gsub(/([^A-Za-z])#{word}([^A-Za-z])/, "\\1#{word2}\\2")
+end
+
+
+def pronounce_url(str0)
+  str = str0.clone
+  str.gsub!(/\:/, ' colon ')
+  str.gsub!(/\//, ' slash ')
+  str.gsub!(/\./, ' dot ')
+  return str
+end
+
+def pronounce(str0)
+  str = str0.clone
+  [
+   ['arxiv', 'archive'],
+   ['arXiv', 'archive'],
+   ['PASJ'  , 'Publications of the Astronomical Society of Japan'],
+   ['ApJ'  , 'Astrophysical Journal'],
+   ['ApJL' , 'Astrophysical Journal Letters'],
+   ['emulateapj', 'emulate APJ'],
+   ['MNRAS'  , 'Monthly Notices of the Royal Astronomical Society'],
+   ['A&amp;A', 'Astronomy and Astrophysics'],
+
+   ['WMAP' , 'W-map'],
+   ['kpc'  , 'kilo parsec'],
+   ['Mpc'  , 'mega parsec'],
+   ['Gpc'  , 'giga parsec'],
+   ['kHz'  , 'kilo hertz'],
+   ['MHz'  , 'mega hertz'],
+   ['GHz'  , 'giga hertz'],
+
+   ['Myr'  , 'mega year'],
+   ['Gyr'  , 'giga year'],
+
+   ['M_sun', 'solar mass'],
+   ['M_sol', 'solar mass'],
+
+   ['eV'  , 'electron volts'],
+   ['HI', 'H one'],
+   ['HII', 'H two'],
+   ['[Tt]ype-III', 'type three'],
+   ['[Tt]ype-II', 'type two'],
+   ['[Tt]ype-I', 'type one'],
+   ['[Tt]ype-Ia', 'type one eigh '],
+   ['[Ss]upernovae', 'supernovee']
+  ].each{|a,b|
+    str = gsub_word(str,a,b)
+  }
+
+  str.gsub!(/\$/, '')
+  str.gsub!(/\//, '')
+  return str
+end
+
+
+def sayText(str, options = [])
+  puts str
+  Open3.popen3($speech_cmd + ' ' + options.join(' ')){|stdin, stdout, stderr|
+    line =  pronounce(str)
+    stdin.puts line
+    stdin.close
+    tmp = stdout.gets 
+  }
+end
+
+def jingle_begin()
+  return
+  if $speech_cmd == 'say'
+    sayText("O behold researchers time for today's news.", [" -v 'Good News' "])
+  else
+    sayText("tadatadutadatadetadatadutadatadedook"+
+            "tadatadutadatadetadatadutadatadooh.")
+  end
+end
+
+def jingle_top()
+  return
+  if $speech_cmd == 'say'
+    sayText("king kong kang koo", [" -v 'Bells' "])
+  else
+    sayText(  "da! da! do! da! da! do? do!")
+  end
+end
+
+def jingle_detail()
+  if $speech_cmd == 'say'
+    sayText("king kong kang koo", [" -v 'Bells' "])
+  else
+    sayText(  "da! da! do! da! da! do? do!")
+  end
+end
+
+
+
+STDERR.puts "Retrieving #{NEWS_URL}"
+doc = Hpricot(open(NEWS_URL,
+                   "User-Agent" => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ja; rv:1.9.0.1) Gecko/2008070208 Firefox/3.0.1'))
+
+STDERR.puts "Analysing"
+newslist = []
+
+doc.search('dl').each{|main_dl|
+
+  dtdds = []
+
+  dts = main_dl.search('dt')
+  dds = main_dl.search('dd')
+  [dts.length, dds.length].min.times{|i|
+    dtdds.push([dts[i],dds[i]])
+  }
+
+
+
+  dtdds.each{|paper_dt, paper_dd|
+    arXiv_index = paper_dt.at("//a[@title=\"Abstract\"]").inner_html
+    
+
+    paper = paper_dd.at('div.meta')
+
+    title_html = paper.search('div.list-title').inner_html.strip
+    title_html =~ /\<\/span\>(.+)/
+    title = cleanse($1)
+
+    author_html = paper.search('div.list-authors').inner_html.strip
+    author_html =~ /\<\/span\>(.+)/m
+    authors2 = $1.strip
+    authors3 = authors2.split(/\n/).map{|author_line|
+      al = author_line.split(/\<[^\>]*\>/).join.split(/\([0-9and\,\s]*\)/).join
+      cleanse(al)
+    }
+    
+    
+    authors = 
+    if authors3.length <= 4
+      authors3
+    else
+      authors3[0..2] + authors3[-1..-1] + ["et al."]
+    end
+
+
+    comment_html = paper.search('div.list-comments').inner_html.strip
+    comment_html =~ /\<\/span\>(.+)/
+    comment = cleanse($1 || '')
+
+    subject_html = paper.search('div.list-subjects').inner_html.strip
+    subject_html =~ /\<\/span\>(.+)/
+    subject = cleanse($1.split(/\<[^\>]*\>/).join)
+    subject_html =~ /(\([^\)]+\))/
+    subject_tag = $1
+    subject_tag ||= ''
+    subject.gsub!(/\([^\)]*\)/, '')
+    
+
+    abstract_html = paper.search('p').inner_html.strip
+    abstract = cleanse(abstract_html).strip
+
+    next if abstract.length <= 0 
+
+    news = News.new()
+    news.arXiv_index = arXiv_index
+    news.subject_tag = subject_tag
+    news.subject = subject
+    news.headline = title
+    news.rank = newslist.length + 1
+    news.text = [
+                 "#{subject}.",
+                 "#{title}.","by"] + 
+    authors+
+    ["#{comment}.",
+     "#{abstract}."
+    ]
+
+
+
+    newslist.push(news)
+  }
+}
+
+headlinenews = {}
+newslist.each{|news|
+  subj = news.subject_tag
+  next if subj == '' 
+  if (not headlinenews[subj]) || (headlinenews[subj].subject.length > news.subject.length)
+    headlinenews[subj] = news
+  end
+}
+
+headlinenews = headlinenews.to_a.map{|tag, news| [news.rank, news]}.sort
+
+jingle_begin()
+sleep(0.5)
+sayText(<<INTRO)
+We bring you the news from #{pronounce_url(NEWS_URL)}
+INTRO
+sleep(0.25)
+sayText(<<CASTER)
+I am #{$speech_cmd_long}. 
+CASTER
+
+sleep(0.5)
+
+
+jingle_top()
+
+
+sayText(<<TOPS)
+In our top stories.
+TOPS
+headlinenews.each{|score, hl|
+  sayText("From " + hl.subject + ",")
+  sayText(hl.headline+ ".")
+  sleep(0.5)
+}
+
+sleep(0.5)
+
+jingle_detail()
+
+sayText(<<DETAIL)
+Now the news in detail.
+DETAIL
+
+
+newslist.each{|news|
+  print  news.arXiv_index + " "
+  sayText("#{news.rank} out of #{newslist.length}.")
+  news.text.each{|t| sayText(t)}
+  sleep(1.0)
+}
+
+sleep(1.0)
+
+sayText(<<CLOSING)
+And, that was the news from #{pronounce_url(NEWS_URL)}
+CLOSING
+sleep(0.5)
+
+sayText(<<CLOSING)
+I am #{$speech_cmd_long}. 
+Please tune in tomorrow.
+Byebye!
+CLOSING
